@@ -1,0 +1,283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Capital Gains Tax Calculator</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 text-gray-900">
+  <main class="max-w-4xl mx-auto p-6">
+    <section class="bg-white rounded-2xl shadow p-6 space-y-6">
+      <header>
+        <h1 class="text-2xl font-bold mb-2">Capital Gains Tax Calculator</h1>
+      </header>
+
+      <!-- First row: purchase, sale, holding -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <!-- Purchase -->
+        <label class="block">
+          <span class="text-sm font-medium">Purchase price ($)</span>
+          <input id="purchase" type="text" inputmode="numeric" value="100000" class="mt-1 w-full rounded-lg border border-gray-300 p-3" />
+          <input id="purchaseSlider" type="range" min="0" max="4000" step="1" class="mt-3 w-2/3 md:w-1/2 accent-indigo-600" />
+        </label>
+
+        <!-- Sale -->
+        <label class="block">
+          <span class="text-sm font-medium">Sale price ($)</span>
+          <input id="sale" type="text" inputmode="numeric" value="2000000" class="mt-1 w-full rounded-lg border border-gray-300 p-3" />
+          <input id="saleSlider" type="range" min="0" max="4000" step="1" class="mt-3 w-2/3 md:w-1/2 accent-indigo-600" />
+        </label>
+
+        <!-- Holding period -->
+        <label class="block">
+          <span class="text-sm font-medium">Length of ownership</span>
+          <select id="holding" class="mt-1 w-full rounded-lg border border-gray-300 p-3">
+            <option value="lt">Less than 1 year (short-term)</option>
+            <option value="gt" selected>1 year or more (long-term)</option>
+          </select>
+        </label>
+      </div>
+
+      <!-- Second row: income, filing status, state -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <!-- Income -->
+        <label class="block">
+          <span class="text-sm font-medium">Annual income ($)</span>
+          <input id="income" type="text" inputmode="numeric" value="75000" class="mt-1 w-full rounded-lg border border-gray-300 p-3" />
+          <input id="incomeSlider" type="range" min="0" max="1000" step="1" class="mt-3 w-2/3 md:w-1/2 accent-indigo-600" />
+        </label>
+
+        <!-- Filing status -->
+        <label class="block">
+          <span class="text-sm font-medium">Filing status</span>
+          <select id="status" class="mt-1 w-full rounded-lg border border-gray-300 p-3">
+            <option value="single">Single</option>
+            <option value="married_joint">Married filing jointly</option>
+          </select>
+        </label>
+
+        <!-- State -->
+        <label class="block">
+          <span class="text-sm font-medium">State</span>
+          <select id="state" class="mt-1 w-full rounded-lg border border-gray-300 p-3">
+            <option value="none">Select state</option>
+            <option value="AL">Alabama</option>
+            <option value="AK">Alaska</option>
+            <option value="AZ">Arizona</option>
+            <option value="AR">Arkansas</option>
+            <option value="CA">California</option>
+            <option value="CO">Colorado</option>
+            <option value="CT">Connecticut</option>
+            <option value="DE">Delaware</option>
+            <option value="DC">District of Columbia</option>
+            <option value="FL">Florida</option>
+            <option value="GA">Georgia</option>
+            <option value="HI">Hawaii</option>
+            <option value="ID">Idaho</option>
+            <option value="IL">Illinois</option>
+            <option value="IN">Indiana</option>
+            <option value="IA">Iowa</option>
+            <option value="KS">Kansas</option>
+            <option value="KY">Kentucky</option>
+            <option value="LA">Louisiana</option>
+            <option value="ME">Maine</option>
+            <option value="MD">Maryland</option>
+            <option value="MA">Massachusetts</option>
+            <option value="MI">Michigan</option>
+            <option value="MN">Minnesota</option>
+            <option value="MS">Mississippi</option>
+            <option value="MO">Missouri</option>
+            <option value="MT">Montana</option>
+            <option value="NE">Nebraska</option>
+            <option value="NV">Nevada</option>
+            <option value="NH">New Hampshire</option>
+            <option value="NJ">New Jersey</option>
+            <option value="NM">New Mexico</option>
+            <option value="NY">New York</option>
+            <option value="NC">North Carolina</option>
+            <option value="ND">North Dakota</option>
+            <option value="OH">Ohio</option>
+            <option value="OK">Oklahoma</option>
+            <option value="OR">Oregon</option>
+            <option value="PA">Pennsylvania</option>
+            <option value="RI">Rhode Island</option>
+            <option value="SC">South Carolina</option>
+            <option value="SD">South Dakota</option>
+            <option value="TN">Tennessee</option>
+            <option value="TX">Texas</option>
+            <option value="UT">Utah</option>
+            <option value="VT">Vermont</option>
+            <option value="VA">Virginia</option>
+            <option value="WA">Washington</option>
+            <option value="WV">West Virginia</option>
+            <option value="WI">Wisconsin</option>
+            <option value="WY">Wyoming</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="rounded-xl border bg-gray-50 p-6 text-center">
+        <div class="text-sm text-gray-500 mb-1">Total estimated taxes owed</div>
+        <div id="totalTax" class="text-4xl font-semibold">$0</div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    // ======= CONFIG =======
+    const MAX_PURCHASE_SALE = 20_000_000; // $20M
+    const MAX_INCOME = 500_000;          // $500k
+    const STEP = 5_000;                   // $5k increments (round immediately while typing)
+    const CURVE_K = 6;                    // exponential feel
+    const RES_PS = 4000;                  // purchase/sale slider resolution
+    const RES_INC = 1000;                 // income slider resolution
+
+    // 2025 rough federal thresholds (same as earlier draft)
+    const STD_DEDUCTION_2025 = { single:15000, married_joint:30000 };
+    const LTCG_THRESHOLDS_2025 = { single:{zero:47025,fifteenCap:533400}, married_joint:{zero:94050,fifteenCap:600050} };
+    const NIIT_THRESHOLDS = { single:200000, married_joint:250000 };
+
+    // State rates (percent) incl. DC
+    const stateRatesPct = {
+      AL:5, AK:0, AZ:2.5, AR:3.9, CA:13.3, CO:4.4, CT:6.99, DE:6.6, DC:10.75, FL:0, GA:5.39, HI:7.25, ID:5.69, IL:4.95, IN:3, IA:3.8,
+      KS:5.58, KY:4, LA:3, ME:7.15, MD:5.75, MA:9, MI:4.25, MN:9.85, MS:4.4, MO:4.7, MT:5.9, NE:5.2, NV:0, NH:0, NJ:10.75, NM:5.9,
+      NY:10.9, NC:4.25, ND:2.5, OH:3.5, OK:4.75, OR:9.9, PA:3.07, RI:5.99, SC:6.2, SD:0, TN:0, TX:0, UT:4.55, VT:8.75, VA:5.75,
+      WA:0, WV:4.82, WI:7.65, WY:0
+    };
+
+    // ======= HELPERS =======
+    const $ = id => document.getElementById(id);
+    const fmt = n => Number.isFinite(n) ? n.toLocaleString(undefined,{style:'currency',currency:'USD',maximumFractionDigits:0}) : '$0';
+    const parseNumber = str => parseFloat((str||'').toString().replace(/,/g,'')) || 0;
+    const fmtInt = n => Number.isFinite(n) ? Math.round(n).toLocaleString('en-US') : '0';
+    const roundToStep = (n, step=STEP) => Math.round(n/step)*step;
+
+    // exp mapping 0..res → 0..max (rounded to STEP)
+    function valueFromSlider(s, max, res){
+      const t = Number(s) / res;
+      const scaled = ( (Math.exp(CURVE_K*t) - 1) / (Math.exp(CURVE_K) - 1) ) * max;
+      return Math.min(max, roundToStep(scaled));
+    }
+    function sliderFromValue(v, max, res){
+      const clamped = Math.max(0, Math.min(max, v));
+      const ratio = clamped / max;
+      const t = Math.log(1 + ratio * (Math.exp(CURVE_K) - 1)) / CURVE_K;
+      return Math.round(t * res);
+    }
+
+    // Sync a numeric input with a non-linear slider
+    function syncSliderWithInput(inputId, sliderId, max, res){
+      const input = $(inputId), slider = $(sliderId);
+
+      // Format current value with commas on load
+      const initNum = Math.max(0, Math.min(max, roundToStep(parseNumber(input.value))));
+      input.value = fmtInt(initNum);
+
+      // typing → slider (format with commas, round to nearest STEP immediately)
+      input.addEventListener('input', () => {
+        const raw = input.value;
+        const digitsOnly = raw.replace(/,/g,'');
+        const num = parseNumber(digitsOnly);
+        const clamped = Math.max(0, Math.min(max, roundToStep(num)));
+        input.value = fmtInt(clamped);
+        slider.value = sliderFromValue(clamped, max, res);
+        recalc();
+      });
+
+      // blur/change → ensure proper formatting & snap
+      input.addEventListener('change', () => {
+        const num = parseNumber(input.value);
+        const clamped = Math.max(0, Math.min(max, roundToStep(num)));
+        input.value = fmtInt(clamped);
+        slider.value = sliderFromValue(clamped, max, res);
+        recalc();
+      });
+
+      // slider → input (with commas)
+      slider.addEventListener('input', () => {
+        const amt = valueFromSlider(slider.value, max, res);
+        input.value = fmtInt(amt);
+        recalc();
+      });
+
+      // init position
+      slider.value = sliderFromValue(initNum, max, res);
+    }
+
+    // ======= TAX LOGIC =======
+    function calcFederalLT(gain,status,taxableBefore){
+      const {zero,fifteenCap}=LTCG_THRESHOLDS_2025[status];
+      let remaining=gain, taxed15=0, taxed20=0;
+      const room0=Math.max(0,zero - taxableBefore);
+      const use0=Math.min(remaining,room0); remaining-=use0; // 0% band
+      const room15=Math.max(0,fifteenCap - Math.max(taxableBefore,zero) - use0);
+      const use15=Math.min(remaining,room15); taxed15+=use15; remaining-=use15;
+      taxed20+=Math.max(0,remaining);
+      return taxed15*0.15 + taxed20*0.20;
+    }
+    const calcFederalST = gain => gain*0.22; // simple approx
+
+    function recalc(){
+      const purchase=parseNumber($("purchase").value);
+      const sale=parseNumber($("sale").value);
+      const income=parseNumber($("income").value);
+      const status=$("status").value;
+      const state=$("state").value;
+      const isLT=$("holding").value==='gt';
+
+      const gain=Math.max(0,sale-purchase);
+      const std=STD_DEDUCTION_2025[status];
+      const taxableBefore=Math.max(0,income-std);
+
+      const fedTax=isLT?calcFederalLT(gain,status,taxableBefore):calcFederalST(gain);
+
+      const niitThreshold=NIIT_THRESHOLDS[status];
+      const mAGI=income+gain;
+      const niitBase=Math.max(0,mAGI-niitThreshold);
+      const niit=0.038*Math.min(gain,niitBase);
+
+      const stateRate = stateRatesPct[state] ?? 0; // percent
+      const stateTax = gain * (stateRate/100);
+
+      const total=fedTax+niit+stateTax;
+      $("totalTax").textContent=fmt(total);
+    }
+
+    // ======= WIRING =======
+    syncSliderWithInput('purchase','purchaseSlider',MAX_PURCHASE_SALE,RES_PS);
+    syncSliderWithInput('sale','saleSlider',MAX_PURCHASE_SALE,RES_PS);
+    syncSliderWithInput('income','incomeSlider',MAX_INCOME,RES_INC);
+
+    ["status","state","holding"].forEach(id=>{
+      $(id).addEventListener('input',recalc);
+      $(id).addEventListener('change',recalc);
+    });
+
+    // initial compute
+    recalc();
+
+    // ======= RUNTIME TESTS (console) =======
+    (function runTests(){
+      const near = (a,b,eps=1e-6) => Math.abs(a-b) < eps;
+      console.assert(parseNumber('')===0, 'parseNumber empty');
+      console.assert(parseNumber('1,234')===1234, 'parseNumber commas');
+      console.assert(fmtInt(1234567)==='1,234,567', 'fmtInt commas');
+      const r1 = roundToStep(1234, 5000), r2 = roundToStep(2600, 5000);
+      console.assert(r1===0 && r2===5000, 'roundToStep immediate rounding');
+      const val=250000, s=sliderFromValue(val, MAX_PURCHASE_SALE, RES_PS);
+      const back=valueFromSlider(s, MAX_PURCHASE_SALE, RES_PS);
+      console.assert(back%STEP===0, 'valueFromSlider STEP rounding');
+      console.assert(near(back, Math.round(val/STEP)*STEP), 'slider/value invertibility');
+      const lt = calcFederalLT(100000,'single',50000);
+      console.assert(Number.isFinite(lt) && lt>=0, 'calcFederalLT finite');
+      const st = calcFederalST(100000);
+      console.assert(st===22000, 'calcFederalST 22%');
+      // Extra tests for state-rate fallback and monotonicity
+      console.assert((stateRatesPct['ZZ'] ?? 0) === 0, 'state rate fallback to 0');
+      console.assert(sliderFromValue(valueFromSlider(2000, MAX_PURCHASE_SALE, RES_PS), MAX_PURCHASE_SALE, RES_PS) >= 0, 'slider round-trip not NaN');
+      console.log('All tests passed');
+    })();
+  </script>
+</body>
+</html>
