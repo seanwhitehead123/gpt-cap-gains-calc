@@ -1,0 +1,453 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Capital Gains Tax Calculator</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+</head>
+<body class="bg-gray-50 text-gray-900">
+  <main class="max-w-4xl mx-auto p-6">
+    <section class="bg-white rounded-2xl shadow p-6 space-y-6">
+      <header>
+        <h1 class="text-2xl font-bold mb-2">Capital Gains Tax Calculator</h1>
+        <p class="text-xs text-gray-500">Income = AGI before this sale. Installment sale uses §453 Gross Profit Ratio with true amortization. NIIT = 3.8% × min(NII, MAGI − threshold) per year.</p>
+      </header>
+
+      <!-- Inputs -->
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <label class="block">
+          <span class="text-sm font-medium">Purchase price ($)</span>
+          <input id="purchase" type="text" inputmode="numeric" value="100,000" class="mt-1 w-full rounded-lg border border-gray-300 p-3" />
+          <input id="purchaseSlider" type="range" min="0" max="4000" step="1" class="mt-3 w-2/3 md:w-1/2 accent-indigo-600" />
+        </label>
+        <label class="block">
+          <span class="text-sm font-medium">Sale / Contract price ($)</span>
+          <input id="sale" type="text" inputmode="numeric" value="2,000,000" class="mt-1 w-full rounded-lg border border-gray-300 p-3" />
+          <input id="saleSlider" type="range" min="0" max="4000" step="1" class="mt-3 w-2/3 md:w-1/2 accent-indigo-600" />
+        </label>
+        <label class="block">
+          <span class="text-sm font-medium">Length of ownership</span>
+          <select id="holding" class="mt-1 w-full rounded-lg border border-gray-300 p-3">
+            <option value="lt">Less than 1 year (short-term)</option>
+            <option value="gt" selected>1 year or more (long-term)</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <label class="block">
+          <span class="text-sm font-medium">Annual AGI before sale ($)</span>
+          <input id="income" type="text" inputmode="numeric" value="75,000" class="mt-1 w-full rounded-lg border border-gray-300 p-3" />
+          <input id="incomeSlider" type="range" min="0" max="1000" step="1" class="mt-3 w-2/3 md:w-1/2 accent-indigo-600" />
+        </label>
+        <label class="block">
+          <span class="text-sm font-medium">Filing status</span>
+          <select id="status" class="mt-1 w-full rounded-lg border border-gray-300 p-3">
+            <option value="single">Single</option>
+            <option value="married_joint">Married filing jointly</option>
+          </select>
+        </label>
+        <label class="block">
+          <span class="text-sm font-medium">State</span>
+          <select id="state" class="mt-1 w-full rounded-lg border border-gray-300 p-3">
+            <option value="none">Select state</option>
+            <option value="AL">Alabama</option>
+            <option value="AK">Alaska</option>
+            <option value="AZ">Arizona</option>
+            <option value="AR">Arkansas</option>
+            <option value="CA">California</option>
+            <option value="CO">Colorado</option>
+            <option value="CT">Connecticut</option>
+            <option value="DE">Delaware</option>
+            <option value="DC">District of Columbia</option>
+            <option value="FL">Florida</option>
+            <option value="GA">Georgia</option>
+            <option value="HI">Hawaii</option>
+            <option value="ID">Idaho</option>
+            <option value="IL">Illinois</option>
+            <option value="IN">Indiana</option>
+            <option value="IA">Iowa</option>
+            <option value="KS">Kansas</option>
+            <option value="KY">Kentucky</option>
+            <option value="LA">Louisiana</option>
+            <option value="ME">Maine</option>
+            <option value="MD">Maryland</option>
+            <option value="MA">Massachusetts</option>
+            <option value="MI">Michigan</option>
+            <option value="MN">Minnesota</option>
+            <option value="MS">Mississippi</option>
+            <option value="MO">Missouri</option>
+            <option value="MT">Montana</option>
+            <option value="NE">Nebraska</option>
+            <option value="NV">Nevada</option>
+            <option value="NH">New Hampshire</option>
+            <option value="NJ">New Jersey</option>
+            <option value="NM">New Mexico</option>
+            <option value="NY">New York</option>
+            <option value="NC">North Carolina</option>
+            <option value="ND">North Dakota</option>
+            <option value="OH">Ohio</option>
+            <option value="OK">Oklahoma</option>
+            <option value="OR">Oregon</option>
+            <option value="PA">Pennsylvania</option>
+            <option value="RI">Rhode Island</option>
+            <option value="SC">South Carolina</option>
+            <option value="SD">South Dakota</option>
+            <option value="TN">Tennessee</option>
+            <option value="TX">Texas</option>
+            <option value="UT">Utah</option>
+            <option value="VT">Vermont</option>
+            <option value="VA">Virginia</option>
+            <option value="WA">Washington</option>
+            <option value="WV">West Virginia</option>
+            <option value="WI">Wisconsin</option>
+            <option value="WY">Wyoming</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+        <div class="rounded-xl border bg-gray-50 p-6 text-center">
+          <div class="text-sm text-gray-500 mb-1">Lump Sum Post-Tax Take-Home</div>
+          <div id="lumpSumTakeHome" class="text-3xl font-semibold">$0</div>
+        </div>
+        <div class="rounded-xl border bg-gray-50 p-6 text-center">
+          <div class="text-sm text-gray-500 mb-1">Installment Sale Post-Tax Take-Home</div>
+          <div id="installmentTakeHome" class="text-3xl font-semibold">$0</div>
+        </div>
+      </div>
+
+      <details class="rounded-xl border p-5 bg-slate-50/60">
+        <summary class="cursor-pointer font-semibold">Installment Sale Options</summary>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mt-4">
+          <label class="block">
+            <span class="text-sm font-medium">Years (min 2)</span>
+            <input id="instYears" type="number" min="2" max="30" step="1" value="10" class="mt-1 w-full rounded-lg border border-gray-300 p-3" />
+          </label>
+          <label class="block">
+            <span class="text-sm font-medium">Note interest rate (%)</span>
+            <input id="instRate" type="number" min="0" max="30" step="0.1" value="5.0" class="mt-1 w-full rounded-lg border border-gray-300 p-3" />
+          </label>
+        </div>
+        <div class="mt-4">
+          <button id="togglePreview" class="text-sm underline text-indigo-700">Show year-by-year preview</button>
+          <div id="previewWrap" class="mt-3 hidden overflow-x-auto">
+            <table class="min-w-full text-sm">
+              <thead>
+                <tr class="text-left text-gray-600 border-b">
+                  <th class="py-2 pr-4">Year</th>
+                  <th class="py-2 pr-4">Payment</th>
+                  <th class="py-2 pr-4">Interest (Ord.)</th>
+                  <th class="py-2 pr-4">Principal</th>
+                  <th class="py-2 pr-4">Basis Recov.</th>
+                  <th class="py-2 pr-4">Gain Recog.</th>
+                  <th class="py-2 pr-4">Taxes</th>
+                  <th class="py-2 pr-4">After-Tax Cash</th>
+                </tr>
+              </thead>
+              <tbody id="previewBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </details>
+
+      <div class="rounded-xl border bg-gray-50 p-6 text-center">
+        <div class="text-sm text-gray-500 mb-1">Estimated taxes under lump-sum scenario</div>
+        <div id="totalTax" class="text-4xl font-semibold">$0</div>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    // ======= CONFIG (for sliders) =======
+    const MAX_PURCHASE_SALE = 20_000_000; // $20M
+    const MAX_INCOME = 500_000;           // $500k
+    const STEP_5K = 5_000;                // purchase/sale step
+    const STEP_1K = 1_000;                // income step
+    const CURVE_K = 6;                    // non-linear feel for sliders
+    const RES_PS = 4000;                  // purchase/sale slider resolution
+    const RES_INC = 1000;                 // income slider resolution
+
+    // ======= DOM + format helpers =======
+    const $ = id => document.getElementById(id);
+    const fmt = n => Number.isFinite(n)?n.toLocaleString(undefined,{style:'currency',currency:'USD',maximumFractionDigits:0}):'$0';
+    const fmtInt = n => Number.isFinite(n)?Math.round(n).toLocaleString('en-US'):'0';
+    const parseNumber = str => parseFloat((str||'').toString().replace(/,/g,''))||0;
+    const roundToStep = (n, step) => Math.round(n/step)*step;
+
+    // Exponential mapping 0..res → 0..max with rounding
+    function valueFromSlider(s, max, res, step){
+      const t = Number(s) / res;
+      const scaled = ((Math.exp(CURVE_K*t) - 1) / (Math.exp(CURVE_K) - 1)) * max;
+      return Math.min(max, roundToStep(scaled, step));
+    }
+    function sliderFromValue(v, max, res){
+      const clamped = Math.max(0, Math.min(max, v));
+      const ratio = clamped / max;
+      const t = Math.log(1 + ratio * (Math.exp(CURVE_K) - 1)) / CURVE_K;
+      return Math.round(t * res);
+    }
+
+    function syncSliderWithInput(inputId, sliderId, max, res, step){
+      const input = $(inputId);
+      const slider = $(sliderId);
+      const initNum = Math.max(0, Math.min(max, roundToStep(parseNumber(input.value), step)));
+      input.value = fmtInt(initNum);
+      slider.value = sliderFromValue(initNum, max, res);
+      input.addEventListener('input', () => {
+        const num = parseNumber(input.value);
+        const clamped = Math.max(0, Math.min(max, roundToStep(num, step)));
+        input.value = fmtInt(clamped);
+        slider.value = sliderFromValue(clamped, max, res);
+        recalc();
+      });
+      input.addEventListener('change', () => {
+        const num = parseNumber(input.value);
+        const clamped = Math.max(0, Math.min(max, roundToStep(num, step)));
+        input.value = fmtInt(clamped);
+        slider.value = sliderFromValue(clamped, max, res);
+        recalc();
+      });
+      slider.addEventListener('input', () => {
+        const amt = valueFromSlider(slider.value, max, res, step);
+        input.value = fmtInt(amt);
+        recalc();
+      });
+    }
+
+    // ======= 2025 rough brackets & thresholds (approx) =======
+    const STD_DEDUCTION_2025 = { single:15000, married_joint:30000 };
+    const LTCG_THRESHOLDS_2025 = {
+      single:{ zero:47025, fifteenCap:533400 },
+      married_joint:{ zero:94050, fifteenCap:600050 }
+    };
+    const NIIT_THRESHOLDS = { single:200000, married_joint:250000 };
+
+    const ORD_BRACKETS_2025 = {
+      single: [
+        { upTo: 11600, rate: 0.10 },
+        { upTo: 47150, rate: 0.12 },
+        { upTo: 100525, rate: 0.22 },
+        { upTo: 191950, rate: 0.24 },
+        { upTo: 243725, rate: 0.32 },
+        { upTo: 609350, rate: 0.35 },
+        { upTo: Infinity, rate: 0.37 }
+      ],
+      married_joint: [
+        { upTo: 23200, rate: 0.10 },
+        { upTo: 94300, rate: 0.12 },
+        { upTo: 201050, rate: 0.22 },
+        { upTo: 383900, rate: 0.24 },
+        { upTo: 487450, rate: 0.32 },
+        { upTo: 731200, rate: 0.35 },
+        { upTo: Infinity, rate: 0.37 }
+      ]
+    };
+
+    // Flat state rates used as ordinary approximation
+    const stateRatesPct = {
+      AL:5, AK:0, AZ:2.5, AR:3.9, CA:13.3, CO:4.4, CT:6.99, DE:6.6, DC:10.75, FL:0, GA:5.39, HI:7.25, ID:5.69, IL:4.95, IN:3, IA:3.8,
+      KS:5.58, KY:4, LA:3, ME:7.15, MD:5.75, MA:9, MI:4.25, MN:9.85, MS:4.4, MO:4.7, MT:5.9, NE:5.2, NV:0, NH:0, NJ:10.75, NM:5.9,
+      NY:10.9, NC:4.25, ND:2.5, OH:3.5, OK:4.75, OR:9.9, PA:3.07, RI:5.99, SC:6.2, SD:0, TN:0, TX:0, UT:4.55, VT:8.75, VA:5.75,
+      WA:0, WV:4.82, WI:7.65, WY:0
+    };
+
+    // ======= Ordinary tax helpers =======
+    function taxOnOrdinary(taxableIncome, status){
+      const b = ORD_BRACKETS_2025[status];
+      let tax = 0, last = 0, remaining = Math.max(0, taxableIncome);
+      for (const {upTo, rate} of b){
+        const span = Math.min(remaining, upTo - last);
+        if (span <= 0) break;
+        tax += span * rate;
+        remaining -= span;
+        last = upTo;
+        if (remaining <= 0) break;
+      }
+      return tax;
+    }
+    function marginalTaxOn(amount, taxableBefore, status){
+      if (amount <= 0) return 0;
+      return taxOnOrdinary(taxableBefore + amount, status) - taxOnOrdinary(taxableBefore, status);
+    }
+
+    // ======= Federal CG (layered) =======
+    function taxOnLongTermGain(gain, status, taxableBefore){
+      const { zero, fifteenCap } = LTCG_THRESHOLDS_2025[status];
+      let remaining = Math.max(0, gain);
+      let tax = 0;
+      const room0 = Math.max(0, zero - taxableBefore);
+      const use0 = Math.min(remaining, room0); remaining -= use0; // 0%
+      const baseAfter0 = Math.max(taxableBefore, zero) + use0;
+      const room15 = Math.max(0, fifteenCap - baseAfter0);
+      const use15 = Math.min(remaining, room15); remaining -= use15; // 15%
+      tax += use15 * 0.15;
+      tax += Math.max(0, remaining) * 0.20; // 20% remainder
+      return tax;
+    }
+
+    // ======= NIIT =======
+    function calcNIIT({nii, agiBefore, status}){
+      const threshold = NIIT_THRESHOLDS[status];
+      const MAGI = agiBefore + nii; // simplified MAGI model
+      if (MAGI <= threshold) return 0;
+      const excess = MAGI - threshold;
+      const base = Math.min(nii, excess);
+      return 0.038 * base;
+    }
+
+    // ======= State tax =======
+    function stateOrdinaryTax(amount, state){
+      const rate = stateRatesPct[state] ?? 0;
+      return amount * (rate/100);
+    }
+
+    // ======= Installment math (true amortization + §453 GPR) =======
+    function pmt(rate, nper, pv){
+      const r = rate; if (nper <= 0) return 0;
+      if (r === 0) return pv / nper;
+      return (r*pv) / (1 - Math.pow(1+r, -nper));
+    }
+
+    function buildInstallmentSchedule({sale, basis, years, annualRate, agiBefore, status, state, isLT}){
+      const r = annualRate/100;
+      const n = Math.max(2, Math.floor(years));
+      const contractPrice = sale; // assuming no assumed debt for now
+      const grossProfit = Math.max(0, sale - basis);
+      const GPR = contractPrice > 0 ? (grossProfit) / contractPrice : 0; // §453 gross profit ratio
+
+      const pay = pmt(r, n, contractPrice);
+      let outstanding = contractPrice;
+
+      const rows = [];
+      let totalAfterTax = 0;
+
+      for (let y=1; y<=n; y++){
+        const interest = r>0 ? outstanding * r : 0;
+        const principal = Math.max(0, pay - interest);
+        outstanding = Math.max(0, outstanding - principal);
+
+        // §453: recognized gain = GPR × principal received (exclude interest)
+        const gainRecog = GPR * principal;
+        const basisRecovery = principal - gainRecog;
+
+        // Federal tax on recognized gain
+        const taxableBefore = Math.max(0, agiBefore - STD_DEDUCTION_2025[status]);
+        const fedGainTax = isLT
+          ? taxOnLongTermGain(gainRecog, status, taxableBefore)
+          : marginalTaxOn(gainRecog, taxableBefore, status);
+
+        // Ordinary tax on interest (marginal)
+        const interestTaxFed = marginalTaxOn(interest, taxableBefore, status);
+
+        // NIIT per year on NII = gain + interest
+        const nii = gainRecog + interest;
+        const niit = calcNIIT({nii, agiBefore, status});
+
+        // State: treat both gain and interest as ordinary (approx)
+        const stateTax = stateOrdinaryTax(gainRecog + interest, state);
+
+        const yearTax = fedGainTax + interestTaxFed + niit + stateTax;
+        const afterTax = pay - yearTax;
+        totalAfterTax += afterTax;
+
+        rows.push({
+          year: y,
+          payment: pay,
+          interest,
+          principal,
+          basisRecovery,
+          gainRecog,
+          taxes: yearTax,
+          afterTax
+        });
+      }
+
+      return { rows, totals:{ afterTax: totalAfterTax } };
+    }
+
+    // ======= Lump sum path =======
+    function computeLumpSum({sale, basis, agiBefore, status, state, isLT}){
+      const gain = Math.max(0, sale - basis);
+      const taxableBefore = Math.max(0, agiBefore - STD_DEDUCTION_2025[status]);
+      const fedTax = isLT ? taxOnLongTermGain(gain, status, taxableBefore)
+                          : marginalTaxOn(gain, taxableBefore, status);
+      const niit = calcNIIT({nii: gain, agiBefore, status});
+      const stateTax = stateOrdinaryTax(gain, state);
+      const total = fedTax + niit + stateTax;
+      return { total, afterTax: sale - total };
+    }
+
+    // ======= Main recalc =======
+    function recalc(){
+      const basis = parseNumber($("purchase").value);
+      const sale = parseNumber($("sale").value);
+      const agiBefore = parseNumber($("income").value);
+      const status = $("status").value;
+      const state = $("state").value;
+      const isLT = $("holding").value === 'gt';
+
+      const years = Math.max(2, parseInt($("instYears").value)||10);
+      const rate = Math.max(0, parseFloat($("instRate").value)||5);
+
+      // Lump sum
+      const lump = computeLumpSum({sale, basis, agiBefore, status, state, isLT});
+
+      // Installment schedule with §453 GPR
+      const schedule = buildInstallmentSchedule({
+        sale, basis, years, annualRate: rate, agiBefore, status, state, isLT
+      });
+
+      // Update UI
+      $("totalTax").textContent = fmt(lump.total);
+      $("lumpSumTakeHome").textContent = fmt(lump.afterTax);
+      $("installmentTakeHome").textContent = fmt(schedule.totals.afterTax);
+
+      if (!$("previewWrap").classList.contains('hidden')){
+        renderPreview(schedule.rows);
+      }
+    }
+
+    function renderPreview(rows){
+      const tbody = $("previewBody");
+      tbody.innerHTML = rows.map(r => `
+        <tr class="border-b">
+          <td class="py-2 pr-4">${r.year}</td>
+          <td class="py-2 pr-4">${fmt(r.payment)}</td>
+          <td class="py-2 pr-4">${fmt(r.interest)}</td>
+          <td class="py-2 pr-4">${fmt(r.principal)}</td>
+          <td class="py-2 pr-4">${fmt(r.basisRecovery)}</td>
+          <td class="py-2 pr-4">${fmt(r.gainRecog)}</td>
+          <td class="py-2 pr-4">${fmt(r.taxes)}</td>
+          <td class="py-2 pr-4">${fmt(r.afterTax)}</td>
+        </tr>
+      `).join('');
+    }
+
+    // ======= Wiring =======
+    syncSliderWithInput('purchase','purchaseSlider', MAX_PURCHASE_SALE, RES_PS, STEP_5K);
+    syncSliderWithInput('sale','saleSlider', MAX_PURCHASE_SALE, RES_PS, STEP_5K);
+    syncSliderWithInput('income','incomeSlider', MAX_INCOME, RES_INC, STEP_1K);
+
+    ["status","state","holding","instYears","instRate"].forEach(id=>{
+      $(id).addEventListener('input', recalc);
+      $(id).addEventListener('change', recalc);
+    });
+
+    const toggleBtn = $("togglePreview");
+    if (toggleBtn) {
+      toggleBtn.addEventListener('click', () => {
+        const wrap = $("previewWrap");
+        wrap.classList.toggle('hidden');
+        if (!wrap.classList.contains('hidden')) {
+          recalc();
+        }
+      });
+    }
+
+    // Initial compute
+    recalc();
+  </script>
+</body>
+</html>
