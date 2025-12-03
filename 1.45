@@ -1,0 +1,555 @@
+// ======= FEDERAL CONFIG (2025) =======
+// If you want 2024 support later, add a second set of tables and a TAX_YEAR switch.
+
+const STD_DEDUCTION_2025 = {
+  single: 15750,
+  married_joint: 31500
+  // (Ignoring other statuses for now)
+};
+
+// 2025 ordinary income tax brackets (taxable income, not AGI).
+// Source: Jackson Hewitt / IRS-aligned 2025 tables. :contentReference[oaicite:1]{index=1}
+const ORD_BRACKETS_2025 = {
+  single: [
+    { upTo: 11925, rate: 0.10 },
+    { upTo: 48475, rate: 0.12 },
+    { upTo: 103350, rate: 0.22 },
+    { upTo: 197300, rate: 0.24 },
+    { upTo: 250525, rate: 0.32 },
+    { upTo: 626350, rate: 0.35 },
+    { upTo: Infinity, rate: 0.37 }
+  ],
+  married_joint: [
+    { upTo: 23850, rate: 0.10 },
+    { upTo: 96950, rate: 0.12 },
+    { upTo: 206700, rate: 0.22 },
+    { upTo: 394600, rate: 0.24 },
+    { upTo: 501050, rate: 0.32 },
+    { upTo: 751600, rate: 0.35 },
+    { upTo: Infinity, rate: 0.37 }
+  ]
+};
+
+// 2025 long-term capital gain thresholds (taxable income). :contentReference[oaicite:2]{index=2}
+const LTCG_THRESHOLDS_2025 = {
+  single: {
+    zero: 48350,        // up to this = 0%
+    fifteenCap: 533400  // up to this = 15%; above = 20%
+  },
+  married_joint: {
+    zero: 96700,
+    fifteenCap: 600050
+  }
+};
+
+// NIIT thresholds (unchanged since introduction). :contentReference[oaicite:3]{index=3}
+const NIIT_THRESHOLDS = {
+  single: 200000,
+  married_joint: 250000
+};
+
+// ======= STATE APPROX (top marginal rate, still simplified) =======
+// Same as before – this is inherently approximate.
+const stateTopRates = {
+  AL:5, AK:0, AZ:2.5, AR:4.55, CA:13.3, CO:4.4, CT:6.99, DE:6.6, DC:10.75, FL:0, GA:5.39, HI:11, ID:5.69,
+  IL:4.95, IN:3, IA:3.8, KS:5.7, KY:4, LA:4.25, ME:7.15, MD:5.75, MA:9, MI:4.25, MN:9.85,
+  MS:5, MO:4.7, MT:5.9, NE:5.84, NV:0, NH:4, NJ:10.75, NM:5.9, NY:10.9, NC:4.25, ND:2.5,
+  OH:3.5, OK:4.75, OR:9.9, PA:3.07, RI:5.99, SC:6.2, SD:0, TN:0, TX:0, UT:4.55, VT:8.75,
+  VA:5.75, WA:7, WV:6.5, WI:7.65, WY:0
+};
+
+// Very rough state LT gain preferences / surtaxes.
+// NOTE: still an approximation; not all details are modeled.
+function stateLTAdjustments(state, amountLT, interestOrd, annualNII) {
+  let ltFactor = 1.0;     // share of LT gain that is taxable at normal state rate
+  let altRate = null;     // alternative lower cap rate for LT gain
+  let surtax = 0;         // extra surtax on LT or NII
+
+  switch (state) {
+    case 'HI':
+      altRate = 7.25; // 7.25% cap on LT gains (approx)
+      break;
+    case 'MT':
+      altRate = 4.1;  // effective after credit (approx)
+      break;
+    case 'ND':
+      ltFactor = 0.60; // 40% exclusion
+      break;
+    case 'NM': {
+      const exclCap = Math.min(amountLT, 1_000_000) * 0.40;
+      const exclPct = amountLT > 0 ? exclCap / amountLT : 0;
+      ltFactor = 1 - exclPct;
+      break;
+    }
+    case 'SC':
+      ltFactor = 0.56; // 44% deduction
+      break;
+    case 'VT':
+      ltFactor = 0.60; // 40% exclusion
+      break;
+    case 'WI':
+      ltFactor = 0.70; // 30% exclusion
+      break;
+    case 'WA': {
+      // WA capital gains excise over $250k (very rough). :contentReference[oaicite:4]{index=4}
+      const base = Math.max(0, amountLT - 250_000);
+      surtax += base * 0.07;
+      break;
+    }
+    case 'MA':
+      // Millionaires surtax; this is a blunt approx, just to avoid “always on” bug.
+      if (annualNII > 1_000_000) surtax += amountLT * 0.04;
+      break;
+    case 'MN':
+      if (annualNII > 1_000_000) surtax += (amountLT + interestOrd) * 0.01;
+      break;
+    case 'OR':
+      if (amountLT > 1_000_000) surtax += (amountLT - 1_000_000) * 0.01;
+      break;
+  }
+
+  return { ltTaxableFactor: ltFactor, altRateCap: altRate, extraSurtax: surtax };
+}
+
+// Approximated state tax using top marginal rate + LT tweaks above.
+function stateTaxOnIncome({ state, ltGain, interest, isLT, annualNII }) {
+  const top = stateTopRates[state] ?? 0;
+  let tax = 0;
+
+  if (!state || state === 'none') return 0;
+
+  // NH: interest/dividend only, flat 4% (approx). :contentReference[oaicite:5]{index=5}
+  if (state === 'NH') {
+    tax += interest * 0.04;
+    return tax;
+  }
+
+  let ltAdj = ltGain;
+  let ltRate = top;
+
+  if (isLT && ltGain > 0) {
+    const { ltTaxableFactor, altRateCap, extraSurtax } =
+      stateLTAdjustments(state, ltGain, interest, annualNII);
+
+    ltAdj = ltGain * ltTaxableFactor;
+    if (altRateCap != null) ltRate = altRateCap;
+    tax += extraSurtax;
+  }
+
+  // All state tax here is top-rate based; this ignores brackets.
+  tax += ltAdj * (ltRate / 100);
+  tax += interest * (top / 100);
+
+  return tax;
+}
+
+// ======= FEDERAL HELPERS (ORDINARY, LTCG, NIIT) =======
+
+// Tax on ordinary income given taxable income (after deductions).
+function taxOnOrdinary(taxableIncome, status) {
+  const brackets = ORD_BRACKETS_2025[status];
+  if (!brackets) return 0;
+
+  let remaining = Math.max(0, taxableIncome);
+  let tax = 0;
+  let last = 0;
+
+  for (const { upTo, rate } of brackets) {
+    const span = Math.min(remaining, upTo - last);
+    if (span <= 0) break;
+    tax += span * rate;
+    remaining -= span;
+    last = upTo;
+    if (remaining <= 0) break;
+  }
+
+  return tax;
+}
+
+// Long-term capital gain tax using layering over ordinary taxable income,
+// following IRS ordering: ordinary first, then LTCG across 0% / 15% / 20%. :contentReference[oaicite:6]{index=6}
+function taxOnLongTermGain(gain, status, ordinaryTaxableBeforeLTCG) {
+  const thresholds = LTCG_THRESHOLDS_2025[status];
+  if (!thresholds) return 0;
+
+  const { zero, fifteenCap } = thresholds;
+  const ord = Math.max(0, ordinaryTaxableBeforeLTCG);
+  let remaining = Math.max(0, gain);
+  let tax = 0;
+
+  // 0% band: room from ord up to zero threshold
+  const room0 = Math.max(0, zero - ord);
+  const use0 = Math.min(remaining, room0);
+  remaining -= use0;
+
+  // 15% band: from max(ord, zero) + use0 up to fifteenCap
+  const baseAfter0 = ord + use0;
+  const room15 = Math.max(0, fifteenCap - baseAfter0);
+  const use15 = Math.min(remaining, room15);
+  remaining -= use15;
+
+  tax += use15 * 0.15;       // 15% band
+  tax += remaining * 0.20;   // 20% band (whatever is left)
+
+  return tax;
+}
+
+// NIIT at 3.8% on lesser of NII or (MAGI - threshold). :contentReference[oaicite:7]{index=7}
+function calcNIIT({ nii, agiBefore, status }) {
+  const threshold = NIIT_THRESHOLDS[status];
+  if (!threshold) return 0;
+
+  const NII = Math.max(0, nii);
+  const MAGI = agiBefore + NII; // here we assume AGI_before_sale ~ wages/other
+  const excess = Math.max(0, MAGI - threshold);
+  if (excess <= 0 || NII <= 0) return 0;
+
+  const base = Math.min(NII, excess);
+  return 0.038 * base;
+}
+
+// Level payment for rate r, n periods, principal pv.
+function pmt(rate, nper, pv) {
+  const r = rate;
+  if (nper <= 0) return 0;
+  if (r === 0) return pv / nper;
+  return (r * pv) / (1 - Math.pow(1 + r, -nper));
+}
+
+// ======= §453 INSTALLMENT SCHEDULE (GROSS-PROFIT-RATIO BASED) =======
+// Assumptions:
+// - Single asset sale; no depreciation recapture / §1245/§1250.
+// - Contract price = sale price (no assumed mortgages, contingencies).
+// - Level-payment amortizing note at statedRatePct.
+// - Each year is computed as if sale & note already in place at start of year.
+
+function buildInstallmentSchedule({
+  sale,
+  basis,
+  years,
+  statedRatePct,
+  agiBefore,
+  status,
+  state,
+  isLT
+}) {
+  const n = Math.max(2, Math.floor(years));
+  const r = Math.max(0, statedRatePct / 100);
+
+  const contractPrice = sale;
+  const grossProfit = Math.max(0, sale - basis);
+  const grossProfitRatio = contractPrice > 0 ? (grossProfit / contractPrice) : 0;
+
+  const payment = pmt(r, n, contractPrice);
+
+  // We treat "agiBefore" as AGI from non-sale sources (wages etc.), same each year.
+  const taxableBaseBefore = Math.max(
+    0,
+    agiBefore - (STD_DEDUCTION_2025[status] || 0)
+  );
+
+  let outstanding = contractPrice;
+  const rows = [];
+  let totalTax = 0;
+  let totalAfterTax = 0;
+
+  for (let year = 1; year <= n; year++) {
+    const interest = r > 0 ? outstanding * r : 0;
+    const principal = Math.max(0, payment - interest);
+
+    // Principal is split into basis recovery + gain via gross-profit ratio.
+    const gainRecog = principal * grossProfitRatio;
+    const basisRecovery = principal - gainRecog;
+
+    outstanding = Math.max(0, outstanding - principal);
+
+    // Federal ordinary tax piece:
+    let federalTax = 0;
+    if (isLT) {
+      // Interest is ordinary; gain is LTCG layered on top of ordinary taxable.
+      const taxableWithInterest = taxableBaseBefore + interest;
+      const ordTaxBefore = taxOnOrdinary(taxableBaseBefore, status);
+      const ordTaxWithInt = taxOnOrdinary(taxableWithInterest, status);
+      const taxOnInterest = ordTaxWithInt - ordTaxBefore;
+
+      const taxOnGain = taxOnLongTermGain(gainRecog, status, taxableWithInterest);
+      federalTax = taxOnInterest + taxOnGain;
+    } else {
+      // Short-term: interest + gain taxed as ordinary.
+      const ordTaxBefore = taxOnOrdinary(taxableBaseBefore, status);
+      const ordTaxAfter = taxOnOrdinary(
+        taxableBaseBefore + interest + gainRecog,
+        status
+      );
+      federalTax = ordTaxAfter - ordTaxBefore;
+    }
+
+    // NIIT: NII = interest + (LT or ST) capital gain.
+    const nii = interest + gainRecog;
+    const niit = calcNIIT({ nii, agiBefore, status });
+
+    // State tax approximation:
+    const annualNII = nii;
+    const stateTax = stateTaxOnIncome({
+      state,
+      ltGain: isLT ? gainRecog : 0,
+      interest,
+      isLT,
+      annualNII
+    });
+
+    const yearTax = federalTax + niit + stateTax;
+    const afterTax = payment - yearTax;
+
+    totalTax += yearTax;
+    totalAfterTax += afterTax;
+
+    rows.push({
+      year,
+      payment,
+      interest,
+      principal,
+      basisRecovery,
+      gainRecog,
+      taxes: yearTax,
+      afterTax
+    });
+  }
+
+  return {
+    rows,
+    totals: {
+      taxes: totalTax,
+      afterTax: totalAfterTax,
+      grossProfit
+    }
+  };
+}
+
+// ======= LUMP-SUM SALE (ALL GAIN IN ONE YEAR) =======
+
+function computeLumpSum({ sale, basis, agiBefore, status, state, isLT }) {
+  const gain = Math.max(0, sale - basis);
+  if (gain <= 0) {
+    return {
+      totalTax: 0,
+      afterTax: sale,
+      components: { federal: 0, niit: 0, state: 0, gain }
+    };
+  }
+
+  const stdDed = STD_DEDUCTION_2025[status] || 0;
+  const taxableBaseBefore = Math.max(0, agiBefore - stdDed);
+
+  let federalTax = 0;
+
+  if (isLT) {
+    // LTCG layered on top of ordinary taxable (no ordinary component from sale).
+    federalTax = taxOnLongTermGain(gain, status, taxableBaseBefore);
+  } else {
+    // ST: taxed as ordinary.
+    const ordBefore = taxOnOrdinary(taxableBaseBefore, status);
+    const ordAfter = taxOnOrdinary(taxableBaseBefore + gain, status);
+    federalTax = ordAfter - ordBefore;
+  }
+
+  const nii = gain;
+  const niit = calcNIIT({ nii, agiBefore, status });
+
+  const stateTax = stateTaxOnIncome({
+    state,
+    ltGain: isLT ? gain : 0,
+    interest: isLT ? 0 : 0, // we treat sale as capital gain, not "interest"
+    isLT,
+    annualNII: gain
+  });
+
+  const totalTax = federalTax + niit + stateTax;
+  const afterTax = sale - totalTax;
+
+  return {
+    totalTax,
+    afterTax,
+    components: {
+      federal: federalTax,
+      niit,
+      state: stateTax,
+      gain
+    }
+  };
+}
+
+// Combined marginal rate on an extra dollar of GAIN in the lump-sum year.
+// We bump sale by a small delta and look at Δ tax / Δ gain.
+function combinedMarginalRateLump({ sale, basis, agiBefore, status, state, isLT }) {
+  const gain = Math.max(0, sale - basis);
+  if (gain <= 0) return 0;
+
+  const deltaGain = Math.max(1000, gain * 0.001); // numeric stability
+  const base = computeLumpSum({ sale, basis, agiBefore, status, state, isLT }).totalTax;
+
+  const bumpedSale = sale + deltaGain;
+  const bumped = computeLumpSum({
+    sale: bumpedSale,
+    basis,
+    agiBefore,
+    status,
+    state,
+    isLT
+  }).totalTax;
+
+  return (bumped - base) / deltaGain;
+}
+
+// One-year effective + marginal rate metrics for a typical installment year.
+// We use the first year's row as the representative year (payments differ slightly,
+// but this is a reasonable "typical" slice).
+function installmentYearMetrics({
+  schedule,
+  agiBefore,
+  status,
+  state,
+  isLT
+}) {
+  const row = schedule.rows[0];
+  if (!row) {
+    return {
+      effectiveRate: 0,
+      marginalRate: 0
+    };
+  }
+
+  const { interest, gainRecog, taxes: yearTax } = row;
+  const taxableYear = interest + gainRecog;
+  if (taxableYear <= 0) {
+    return { effectiveRate: 0, marginalRate: 0 };
+  }
+
+  // Effective rate: tax on that year's installment income / that year's taxable amount.
+  const effectiveRate = yearTax / taxableYear;
+
+  // Marginal rate: approximate Δ tax / Δ gain for that year, holding other income fixed.
+  // We bump that year's gain by a small delta; interest stays same.
+  const deltaGain = Math.max(1000, gainRecog * 0.01);
+
+  const stdDed = STD_DEDUCTION_2025[status] || 0;
+  const taxableBaseBefore = Math.max(0, agiBefore - stdDed);
+
+  // Helper: recompute tax for this ONE year only, given gain + interest.
+  function oneYearTax(gainY) {
+    const interestY = interest;
+    let federal = 0;
+
+    if (isLT) {
+      const taxableWithInt = taxableBaseBefore + interestY;
+      const ordBefore = taxOnOrdinary(taxableBaseBefore, status);
+      const ordWithInt = taxOnOrdinary(taxableWithInt, status);
+      const taxOnInt = ordWithInt - ordBefore;
+
+      const taxOnGain = taxOnLongTermGain(gainY, status, taxableWithInt);
+      federal = taxOnInt + taxOnGain;
+    } else {
+      const ordBefore = taxOnOrdinary(taxableBaseBefore, status);
+      const ordAfter = taxOnOrdinary(
+        taxableBaseBefore + interestY + gainY,
+        status
+      );
+      federal = ordAfter - ordBefore;
+    }
+
+    const niiY = gainY + interestY;
+    const niitY = calcNIIT({ nii: niiY, agiBefore, status });
+
+    const annualNII = niiY;
+    const stateTaxY = stateTaxOnIncome({
+      state,
+      ltGain: isLT ? gainY : 0,
+      interest: interestY,
+      isLT,
+      annualNII
+    });
+
+    return federal + niitY + stateTaxY;
+  }
+
+  const baseTax = oneYearTax(gainRecog);
+  const bumpedTax = oneYearTax(gainRecog + deltaGain);
+  const marginalRate = (bumpedTax - baseTax) / deltaGain;
+
+  return { effectiveRate, marginalRate };
+}
+
+// ======= MAIN RECALC =======
+
+function recalc() {
+  const basis = parseNumber($("purchase").value);
+  const sale = parseNumber($("sale").value);
+  const agiBefore = parseNumber($("income").value);
+  const status = $("status").value; // "single" or "married_joint"
+  const state = $("state").value;
+  const isLT = $("holding").value === "gt";
+
+  const years = Math.max(2, parseInt($("instYears").value, 10) || 10);
+  const statedRatePct = Math.max(0, parseFloat($("instRate").value) || 5);
+
+  // LUMP-SUM SCENARIO (all gain in year of sale)
+  const lump = computeLumpSum({ sale, basis, agiBefore, status, state, isLT });
+
+  // INSTALLMENT SCENARIO (level-payment note, §453 gross-profit ratio)
+  const schedule = buildInstallmentSchedule({
+    sale,
+    basis,
+    years,
+    statedRatePct,
+    agiBefore,
+    status,
+    state,
+    isLT
+  });
+
+  // Update main cards
+  $("lumpSumTakeHome").textContent = fmt(lump.afterTax);
+  $("installmentTakeHome").textContent = fmt(schedule.totals.afterTax);
+
+  // One-line installment description for a typical year (first row)
+  const r = schedule.rows[0];
+  const lineEl = $("instAnnualLine");
+  if (r && lineEl) {
+    lineEl.textContent =
+      `Typical year: payment ${fmt(r.payment)} = Interest ${fmt(r.interest)} + ` +
+      `Principal ${fmt(r.principal)} (Basis ${fmt(r.basisRecovery)}, Capital Gain ${fmt(r.gainRecog)}); ` +
+      `Estimated taxes this year ${fmt(r.taxes)} → After-tax cash ${fmt(r.afterTax)}.`;
+  } else if (lineEl) {
+    lineEl.textContent = "";
+  }
+
+  // === TAX RATE COMPARISON ===
+
+  // Lump-sum: full-sale-year rates
+  const lumpGain = lump.components.gain || 0;
+  const lumpEffectiveRate =
+    lumpGain > 0 ? lump.totalTax / lumpGain : 0;
+  const lumpMarginalRate = combinedMarginalRateLump({
+    sale,
+    basis,
+    agiBefore,
+    status,
+    state,
+    isLT
+  });
+
+  $("lumpEffectiveRate").textContent = fmtPct(lumpEffectiveRate);
+  $("lumpMarginalRate").textContent = fmtPct(lumpMarginalRate);
+
+  // Installment: ONE YEAR ONLY (gain + interest for that year)
+  const instMetrics = installmentYearMetrics({
+    schedule,
+    agiBefore,
+    status,
+    state,
+    isLT
+  });
+
+  $("instEffectiveRate").textContent = fmtPct(instMetrics.effectiveRate);
+  $("instMarginalRate").textContent = fmtPct(instMetrics.marginalRate);
+}
